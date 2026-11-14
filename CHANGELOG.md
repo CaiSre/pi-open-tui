@@ -7,6 +7,16 @@
 - Keep the check mark on finished messages, including when the next message starts before the final label renders (#96).
 - Keep the check mark on finished messages after `/reload` rebuilds the chat and Pi resets the hidden-thinking label.
 
+## [0.4.6] - 2026-11-14
+
+### Added
+
+- Add a clickable Copy button to nonempty input drafts in fullscreen mode, including the full text of folded pastes (#103).
+
+### Fixed
+
+- Refresh footer Git status after tool execution so branch and working-tree changes appear during agent turns (#101).
+
 ## [0.4.5] - 2026-11-11
 
 ### Fixed

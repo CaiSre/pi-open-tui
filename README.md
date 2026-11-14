@@ -1,7 +1,5 @@
 # pi-open-tui
 
-[![omp status](https://omppackages.com/badge/pi-open-tui.svg)](https://omppackages.com/packages/pi-open-tui)
-
 **English** | [简体中文](./README.zh-CN.md)
 
 A polished terminal interface for the [Pi](https://pi.dev) coding agent.
@@ -17,7 +15,7 @@ A polished terminal interface for the [Pi](https://pi.dev) coding agent.
 - **Turn telemetry** with generation speed, time to first token, duration, stalls, tokens, and cost rate
 - **Thinking peek** with a live preview of hidden reasoning while the model works
 - **Compact tool view** with edit/write previews and optional support for extension and MCP tools
-- **Fullscreen Copy buttons** for code blocks and user messages
+- **Fullscreen Copy buttons** for code blocks, user messages, and input drafts
 - **Interactive settings** in English and Simplified Chinese through `/open-tui`
 
 ## Requirements
@@ -70,6 +68,8 @@ Selecting **Tool view: Compact** reveals **Compact extension tools** as a child 
 ## Header, footer, and editor
 
 The header provides model and project context with command hints. The two main footer rows keep location, Git state, runtime, a working/done timer, context usage, model details, tokens, and cost visible as space allows. Fields can be toggled individually; the layout shortens or hides lower-priority information in narrow terminals.
+
+Git status refreshes after tool execution, including commits on the current branch. Rapid tool activity is combined into periodic refreshes, with any pending refresh expedited when the agent run ends.
 
 Footer token and cost totals include assistant responses, tool-reported usage, compaction and branch summaries, and cache warming. The cache-hit percentage describes the latest assistant response. Other extensions can use separate status rows or [contribute text directly to the main footer](./docs/footer-segments.md).
 
@@ -141,6 +141,8 @@ In fullscreen mode (Pi's `tuiMode: "fullscreen"`), completed code blocks show a 
 ```
 
 Code labels copy code without fences, preserving indentation and tabs. User-message labels copy the original message. Streaming code blocks gain their label when streaming finishes; regular mode and thinking blocks keep Pi's plain fences. Use Pi's `/copy` to copy a whole assistant reply.
+
+A nonempty draft in a compatible input editor also gets a `[Copy]` button in a free border gap, preferring the bottom border and falling back to the top. It copies the complete draft, including expanded folded pastes, without moving the cursor or changing focus. Footer, working-status, and scroll information stay intact; the button is hidden if neither border has enough space.
 
 Toggle **General → Messages & tools → Copy buttons** to enable or disable this feature. [Copy-button details](./docs/implementation.md#copy-button-behavior) cover width limits, cached blocks, and interaction with other renderers.
 
