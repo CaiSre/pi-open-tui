@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   test:
-    name: test · ubuntu-latest · node ${{ matrix.node }} · pi ${{ matrix.pi }}
+    name: Test · ubuntu-latest · node ${{ matrix.node }} · pi ${{ matrix.pi }}
     # The Gitea runner registers a single label: ubuntu-latest (docker://docker.gitea.com/runner-images:ubuntu-latest).
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -57,11 +57,45 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           if command -v rg >/dev/null 2>&1; then
             echo "rg is already available: $(rg --version | head -1)"
             exit 0
           fi
-          if [ "$(id -u)" = "0" ]; then apt=(apt-get); else apt=(sudo apt-get); fi
+
+          if [ "$(id -u)" = "0" ]; then
+            SUDO=()
+            apt=(apt-get)
+          else
+            SUDO=(sudo)
+            apt=(sudo apt-get)
+          fi
+
+          # 将 Ubuntu APT 源替换为 USTC 镜像源
+          backup_suffix=".bak.ustc.$(date +%Y%m%d%H%M%S)"
+
+          if [ -f /etc/apt/sources.list ]; then
+            "${SUDO[@]}" cp -a /etc/apt/sources.list "/etc/apt/sources.list${backup_suffix}"
+            "${SUDO[@]}" sed -i -E \
+              -e 's#https?://[^/ ]*archive\.ubuntu\.com/ubuntu#https://mirrors.ustc.edu.cn/ubuntu#g' \
+              -e 's#https?://[^/ ]*security\.ubuntu\.com/ubuntu#https://mirrors.ustc.edu.cn/ubuntu#g' \
+              -e 's#https?://[^/ ]*ports\.ubuntu\.com/ubuntu-ports#https://mirrors.ustc.edu.cn/ubuntu-ports#g' \
+              /etc/apt/sources.list
+          fi
+
+          # 兼容 Ubuntu 24.04+ 的 deb822 格式：/etc/apt/sources.list.d/ubuntu.sources
+          if [ -d /etc/apt/sources.list.d ]; then
+            for f in /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do
+              [ -e "$f" ] || continue
+              "${SUDO[@]}" cp -a "$f" "${f}${backup_suffix}"
+              "${SUDO[@]}" sed -i -E \
+                -e 's#https?://[^/ ]*archive\.ubuntu\.com/ubuntu#https://mirrors.ustc.edu.cn/ubuntu#g' \
+                -e 's#https?://[^/ ]*security\.ubuntu\.com/ubuntu#https://mirrors.ustc.edu.cn/ubuntu#g' \
+                -e 's#https?://[^/ ]*ports\.ubuntu\.com/ubuntu-ports#https://mirrors.ustc.edu.cn/ubuntu-ports#g' \
+                "$f"
+            done
+          fi
+
           "${apt[@]}" update -qq
           "${apt[@]}" install -y -qq ripgrep
           rg --version | head -1
@@ -71,6 +105,19 @@ jobs:
       - name: Install Pi ${{ matrix.pi }}
         shell: bash
         run: |
+          set -euo pipefail
+
+          # 使用国内 npm 镜像源（npmmirror，原淘宝源）加速，避免访问官方源超时
+          NPM_MIRROR="https://registry.npmmirror.com"
+          export npm_config_registry="$NPM_MIRROR"
+
+          # 可选：镜像不可达时回退到官方源，避免因镜像故障导致 CI 失败
+          if ! npm ping --registry="$NPM_MIRROR" >/dev/null 2>&1; then
+            echo "::warning::npm mirror $NPM_MIRROR unreachable, falling back to registry.npmjs.org"
+            export npm_config_registry="https://registry.npmjs.org"
+          fi
+          echo "Using npm registry: $(npm config get registry)"
+
           version=$(npm view "@earendil-works/pi-coding-agent@${{ matrix.pi }}" version)
           # Move every installed @earendil-works package to one version: Pi fails to load from a mixed tree.
           packages=$(ls node_modules/@earendil-works | sed "s|.*|@earendil-works/&@$version|")
