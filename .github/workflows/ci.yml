@@ -15,24 +15,56 @@ concurrency:
 
 jobs:
   test:
-    name: test · ${{ matrix.os }} · node ${{ matrix.node }} · pi ${{ matrix.pi }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    name: test · ubuntu-latest · node ${{ matrix.node }} · pi ${{ matrix.pi }}
+    # The Gitea runner registers a single label: ubuntu-latest (docker://docker.gitea.com/runner-images:ubuntu-latest).
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        # Pi needs Node 22.19 or later.
-        node: ["22.19.0", "24"]
+        # Use Node 24.
+        node: ["24"]
         # 1.5.0 is the lowest supported Pi; latest catches breaking Pi releases.
         pi: ["1.5.0", latest]
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
-        with:
-          node-version: ${{ matrix.node }}
-          cache: npm
+      # actions/setup-node downloads from github.com/actions/node-versions, which is not reachable
+      # from the runner network. nodejs.org/dist is reachable, so install the requested version there
+      # and reuse the Node already present in the image when the major version matches.
+      - name: Install Node ${{ matrix.node }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          want="${{ matrix.node }}"
+          have="$(node -p 'process.versions.node')"
+          if [ "${have%%.*}" = "${want%%.*}" ]; then
+            echo "Using the Node already in the image: v$have"
+            exit 0
+          fi
+          url="https://registry.npmmirror.com/binary.html?path=node/v${want}/node-v${want}-linux-x64.tar.xz"
+          echo "Downloading ${url}"
+          curl -fsSL --retry 3 --retry-delay 5 -o /tmp/node.tar.xz "${url}"
+          rm -rf /opt/node
+          mkdir -p /opt/node
+          tar -xJf /tmp/node.tar.xz -C /opt/node --strip-components=1
+          rm -f /tmp/node.tar.xz
+          echo "/opt/node/bin" >> "$GITHUB_PATH"
+
+      # Pi's grep tool needs ripgrep. Pi downloads it from GitHub releases, which the runner
+      # network cannot reach, so install it from the distribution packages instead.
+      - name: Install ripgrep
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v rg >/dev/null 2>&1; then
+            echo "rg is already available: $(rg --version | head -1)"
+            exit 0
+          fi
+          if [ "$(id -u)" = "0" ]; then apt=(apt-get); else apt=(sudo apt-get); fi
+          "${apt[@]}" update -qq
+          "${apt[@]}" install -y -qq ripgrep
+          rg --version | head -1
 
       - run: npm ci --no-audit --no-fund
 
@@ -56,6 +88,14 @@ jobs:
       - name: Tests
         run: npm test
 
+      - name: Post-build cleanup
+        if: always()
+        run: |
+          echo "清理已停止的容器..."
+          docker container prune -f
+          echo "清理未使用的镜像..."
+          docker image prune -f
+
   package:
     name: package contents
     runs-on: ubuntu-latest
@@ -63,9 +103,31 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "24"
+      - name: Install Node 24
+        shell: bash
+        run: |
+          set -euo pipefail
+          have="$(node -p 'process.versions.node')"
+          if [ "${have%%.*}" = "24" ]; then
+            echo "Using the Node already in the image: v$have"
+            exit 0
+          fi
+          url="https://registry.npmmirror.com/binary.html?path=node/v24.22.2/node-v24.22.2-linux-x64.tar.xz"
+          echo "Downloading ${url}"
+          curl -fsSL --retry 3 --retry-delay 5 -o /tmp/node.tar.xz "${url}"
+          rm -rf /opt/node
+          mkdir -p /opt/node
+          tar -xJf /tmp/node.tar.xz -C /opt/node --strip-components=1
+          rm -f /tmp/node.tar.xz
+          echo "/opt/node/bin" >> "$GITHUB_PATH"
 
       - name: List the files npm would publish
         run: npm pack --dry-run --ignore-scripts
+
+      - name: Post-build cleanup
+        if: always()
+        run: |
+          echo "清理已停止的容器..."
+          docker container prune -f
+          echo "清理未使用的镜像..."
+          docker image prune -f
